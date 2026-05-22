@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  fb-reels-telegram-bot:
+    build: .
+    container_name: fb-reels-telegram-bot
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      - TZ=Asia/Jakarta
+
+    volumes:
+      - /data/fb-reels-cli:/app/fb_reels_cli
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
