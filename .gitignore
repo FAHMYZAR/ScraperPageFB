@@ -3,5 +3,4 @@ __pycache__/
 *.pyd
 .venv/
 fb_reels_cli/
-.env
 *.log
