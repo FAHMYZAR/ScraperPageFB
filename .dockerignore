@@ -1,0 +1,10 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+fb_reels_cli/output/*
+fb_reels_cli/session.json
+docs/
+tests/
