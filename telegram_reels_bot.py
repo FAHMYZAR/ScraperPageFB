@@ -56,6 +56,7 @@ AWAIT_INSPECT_REEL_ID = "await_inspect_reel_id"
 
 VALID_REELS_URL = re.compile(r"^https?://", re.IGNORECASE)
 REEL_ID_PATTERN = re.compile(r"/reel/(\d+)|\b(\d{6,})\b")
+TELEGRAM_TEXT_LIMIT = 3900
 
 
 class ReelsTelegramBot:
@@ -114,6 +115,35 @@ class ReelsTelegramBot:
         context.user_data["flow"] = flow
         return flow
 
+    @staticmethod
+    def _split_plain_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
+        if not text:
+            return [""]
+
+        chunks: list[str] = []
+        current = ""
+        for line in text.splitlines(keepends=True):
+            if len(line) > limit:
+                if current:
+                    chunks.append(current.rstrip("\n"))
+                    current = ""
+                for start in range(0, len(line), limit):
+                    part = line[start:start + limit]
+                    if part:
+                        chunks.append(part.rstrip("\n"))
+                continue
+
+            if current and len(current) + len(line) > limit:
+                chunks.append(current.rstrip("\n"))
+                current = line
+            else:
+                current += line
+
+        if current:
+            chunks.append(current.rstrip("\n"))
+
+        return [chunk for chunk in chunks if chunk]
+
     async def _render_control(
         self,
         update: Update,
@@ -121,6 +151,7 @@ class ReelsTelegramBot:
         state: UserFlowState,
         text: str,
         reply_markup: Optional[InlineKeyboardMarkup] = None,
+        parse_mode: Optional[str] = "HTML",
     ) -> None:
         chat = update.effective_chat
         if chat is None:
@@ -128,6 +159,61 @@ class ReelsTelegramBot:
 
         if state.control_chat_id is None:
             state.control_chat_id = chat.id
+
+        if parse_mode is None and state.control_message_id is not None and state.control_message_kind == "photo":
+            try:
+                await context.bot.delete_message(
+                    chat_id=state.control_chat_id,
+                    message_id=state.control_message_id,
+                )
+            except Exception:
+                pass
+            state.control_message_id = None
+            state.control_message_kind = "text"
+
+        if parse_mode is None and len(text) > TELEGRAM_TEXT_LIMIT:
+            chunks = self._split_plain_text(text)
+            if not chunks:
+                chunks = [text]
+
+            sent_first_chunk = False
+            if state.control_message_id is not None and state.control_message_kind != "photo":
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=state.control_chat_id,
+                        message_id=state.control_message_id,
+                        text=chunks[0],
+                        parse_mode=None,
+                        disable_web_page_preview=True,
+                        reply_markup=reply_markup,
+                    )
+                    sent_first_chunk = True
+                    state.control_message_kind = "text"
+                except BadRequest as exc:
+                    if "message is not modified" in str(exc).lower():
+                        return
+                except Exception:
+                    pass
+
+            if not sent_first_chunk:
+                sent = await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=chunks[0],
+                    parse_mode=None,
+                    disable_web_page_preview=True,
+                    reply_markup=reply_markup,
+                )
+                state.set_control_message(chat.id, sent.message_id)
+                state.control_message_kind = "text"
+
+            for chunk in chunks[1:]:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=chunk,
+                    parse_mode=None,
+                    disable_web_page_preview=True,
+                )
+            return
 
         if state.control_message_id is not None:
             is_caption_mode = state.control_message_kind == "photo"
@@ -137,7 +223,7 @@ class ReelsTelegramBot:
                         chat_id=state.control_chat_id,
                         message_id=state.control_message_id,
                         caption=text,
-                        parse_mode="HTML",
+                        parse_mode=parse_mode,
                         reply_markup=reply_markup,
                     )
                 else:
@@ -145,7 +231,7 @@ class ReelsTelegramBot:
                         chat_id=state.control_chat_id,
                         message_id=state.control_message_id,
                         text=text,
-                        parse_mode="HTML",
+                        parse_mode=parse_mode,
                         disable_web_page_preview=True,
                         reply_markup=reply_markup,
                     )
@@ -160,7 +246,7 @@ class ReelsTelegramBot:
         sent = await context.bot.send_message(
             chat_id=chat.id,
             text=text,
-            parse_mode="HTML",
+            parse_mode=parse_mode,
             disable_web_page_preview=True,
             reply_markup=reply_markup,
         )
@@ -322,6 +408,7 @@ class ReelsTelegramBot:
             state,
             text,
             build_scan_result_keyboard(state.last_scan_results),
+            parse_mode=None,
         )
 
     def _build_media_options(self, detail: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -357,6 +444,16 @@ class ReelsTelegramBot:
             )
 
         return options
+
+    def _build_download_session(self) -> Any:
+        session = self.store.build_requests_session()
+        session.headers.update(fb_cli.DEFAULT_HEADERS)
+        referer = str(self.scraper.target or "").strip()
+        if self.settings.default_target:
+            referer = str(self.settings.default_target).strip() or referer
+        if referer:
+            session.headers["Referer"] = referer
+        return session
 
     async def _send_media_file_with_fallback(
         self,
@@ -416,6 +513,10 @@ class ReelsTelegramBot:
             return
 
         headers = dict(fb_cli.DEFAULT_HEADERS)
+        source_url = str(state.last_detail.get("url", "")).strip() or self.scraper.target
+        if source_url:
+            headers["Referer"] = source_url
+        download_session = self._build_download_session()
         with tempfile.TemporaryDirectory(prefix="tg_media_") as tmp_dir:
             work_dir = Path(tmp_dir)
             try:
@@ -430,20 +531,68 @@ class ReelsTelegramBot:
                         audio_url=audio_url,
                         work_dir=work_dir,
                         headers=headers,
+                        session=download_session,
                     ),
                 )
             except Exception as exc:
-                await self._render_control(
-                    update,
-                    context,
-                    state,
-                    (
-                        "⚠️ Gagal menyiapkan file video+audio.\n"
-                        f"Detail: <code>{escape(str(exc))}</code>"
-                    ),
-                    build_detail_keyboard(),
-                )
-                return
+                try:
+                    media_path = await self._run_with_loading(
+                        update,
+                        context,
+                        state,
+                        f"Menyiapkan video saja {option.get('label', '')}",
+                        lambda: prepare_media_file(
+                            reel_id=reel_id,
+                            video_url=video_url,
+                            audio_url=None,
+                            work_dir=work_dir,
+                            headers=headers,
+                            session=download_session,
+                        ),
+                    )
+                except Exception as fallback_exc:
+                    caption = (
+                        f"🎬 Reel <code>{escape(reel_id)}</code>\n"
+                        f"🏷️ Opsi: {escape(str(option.get('label', 'Best')))}"
+                    )
+                    try:
+                        await context.bot.send_video(
+                            chat_id=update.effective_chat.id,
+                            video=video_url,
+                            caption=caption,
+                            parse_mode="HTML",
+                            supports_streaming=True,
+                        )
+                        await self._render_control(
+                            update,
+                            context,
+                            state,
+                            "✅ Video berhasil dikirim langsung dari URL CDN.",
+                            build_detail_keyboard(
+                                resolution_buttons=[
+                                    (f"🎞️ {opt['label']}", f"media:pick:{idx}")
+                                    for idx, opt in enumerate(state.media_options)
+                                ],
+                                show_send_best=bool(state.media_options),
+                            ),
+                        )
+                        return
+                    except TelegramError as remote_exc:
+                        await self._render_control(
+                            update,
+                            context,
+                            state,
+                            (
+                                "⚠️ Gagal menyiapkan file video.\n"
+                                f"Merge detail: <code>{escape(str(exc))}</code>\n"
+                                f"Fallback detail: <code>{escape(str(fallback_exc))}</code>\n"
+                                f"Remote send: <code>{escape(str(remote_exc))}</code>\n\n"
+                                "CDN URL mentah:\n"
+                                f"<code>{escape(video_url)}</code>"
+                            ),
+                            build_detail_keyboard(),
+                        )
+                        return
 
             video_track = option.get("video_track") or {}
             width = int(video_track.get("width", 0) or 0)
@@ -554,6 +703,7 @@ class ReelsTelegramBot:
                 resolution_buttons=resolution_buttons,
                 show_send_best=bool(state.media_options),
             ),
+            parse_mode=None,
         )
 
     async def handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

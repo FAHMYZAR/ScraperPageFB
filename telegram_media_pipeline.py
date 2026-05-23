@@ -96,9 +96,21 @@ def summarize_renditions(renditions: List[Dict[str, Any]], limit: int = 12) -> L
     return lines
 
 
-def download_file(url: str, output_path: Path, headers: Optional[Dict[str, str]] = None, timeout: int = 60) -> Path:
+def download_file(
+    url: str,
+    output_path: Path,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = 60,
+    session: Optional[requests.Session] = None,
+) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, headers=headers or {}, stream=True, timeout=timeout) as response:
+    requester = session or requests
+    request_kwargs = {
+        "headers": headers or {},
+        "stream": True,
+        "timeout": timeout,
+    }
+    with requester.get(url, **request_kwargs) as response:
         response.raise_for_status()
         with output_path.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 128):
@@ -157,10 +169,11 @@ def prepare_media_file(
     audio_url: Optional[str],
     work_dir: Path,
     headers: Optional[Dict[str, str]] = None,
+    session: Optional[requests.Session] = None,
 ) -> Path:
     reel_part = safe_filename_part(reel_id)
     video_file = work_dir / f"{reel_part}_video.mp4"
-    download_file(video_url, video_file, headers=headers)
+    download_file(video_url, video_file, headers=headers, session=session)
 
     if not audio_url:
         return video_file
@@ -168,5 +181,5 @@ def prepare_media_file(
     ensure_ffmpeg_available()
     audio_file = work_dir / f"{reel_part}_audio.m4a"
     output_file = work_dir / f"{reel_part}_merged.mp4"
-    download_file(audio_url, audio_file, headers=headers)
+    download_file(audio_url, audio_file, headers=headers, session=session)
     return merge_video_audio_ffmpeg(video_file, audio_file, output_file)

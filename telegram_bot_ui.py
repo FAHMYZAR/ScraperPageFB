@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from facebook_reels_cli import format_metric, normalize_scan_order, truncate
+from facebook_reels_cli import format_metric, normalize_scan_order
 from telegram_media_pipeline import summarize_renditions
 
 
@@ -125,30 +125,33 @@ def format_scan_results_text(
     friendly_order = order_map.get(order_key, order_label)
 
     header = (
-        "<b>📋 Hasil Scan Reels</b>\n"
-        f"🔗 Target: {escape(target_url)}\n"
-        f"🧭 Urutan: <b>{escape(friendly_order)}</b>\n"
-        f"📦 Total: <b>{len(results)}</b> reel\n\n"
+        "📋 Hasil Scan Reels\n"
+        f"🔗 Target: {target_url}\n"
+        f"🧭 Urutan: {friendly_order}\n"
+        f"📦 Total: {len(results)} reel\n\n"
     )
 
     lines: List[str] = []
-    for idx, item in enumerate(results[:max_items_in_text], 1):
-        reel_id = escape(str(item.get("reel_id", "-")))
-        views = escape(format_metric(None, item.get("card_views", "")))
-        likes = escape(format_metric(item.get("likes"), item.get("likes_raw")))
-        comments = escape(format_metric(item.get("comments"), item.get("comments_raw")))
-        shares = escape(format_metric(item.get("shares"), item.get("shares_raw")))
-        title = escape(truncate(item.get("title", ""), 70) or "-")
+    for idx, item in enumerate(results, 1):
+        reel_id = str(item.get("reel_id", "-"))
+        views = format_metric(None, item.get("card_views", ""))
+        likes = format_metric(item.get("likes"), item.get("likes_raw"))
+        comments = format_metric(item.get("comments"), item.get("comments_raw"))
+        shares = format_metric(item.get("shares"), item.get("shares_raw"))
+        title = str(item.get("title", "-") or "-")
+        description = str(item.get("description", "-") or "-")
+        cdn_quality = str(item.get("best_cdn_quality", "-") or "-")
+        cdn_url = str(item.get("best_cdn_url", "-") or "-")
 
         lines.append(
-            f"<b>{idx}. 🎞️ {reel_id}</b>\n"
+            f"{idx}. 🎞️ {reel_id}\n"
+            f"URL: {item.get('url', '-')}\n"
             f"👀 {views} • 👍 {likes} • 💬 {comments} • ↪️ {shares}\n"
-            f"📝 {title}\n"
-            f"🌐 CDN: <code>{escape(truncate(item.get('best_cdn_url', ''), 80) or '-')}</code>"
+            f"🏷️ CDN: {cdn_quality}\n"
+            f"🌐 CDN URL: {cdn_url}\n"
+            f"📝 Title: {title}\n"
+            f"📄 Desc: {description}"
         )
-
-    if len(results) > max_items_in_text:
-        lines.append(f"… dan {len(results) - max_items_in_text} reel lainnya.")
 
     lines.append("\nPilih nomor reel dari tombol untuk buka detail layer-2.")
     if len(results) > max_pickable:
@@ -160,31 +163,32 @@ def format_scan_results_text(
 
 
 def format_detail_text(detail: Dict[str, Any]) -> str:
-    reel_id = escape(str(detail.get("reel_id", "-")))
-    url = escape(str(detail.get("url", "-")))
-    likes = escape(format_metric(detail.get("likes"), detail.get("likes_raw")))
-    comments = escape(format_metric(detail.get("comments"), detail.get("comments_raw")))
-    shares = escape(format_metric(detail.get("shares"), detail.get("shares_raw")))
+    reel_id = str(detail.get("reel_id", "-"))
+    url = str(detail.get("url", "-"))
+    likes = format_metric(detail.get("likes"), detail.get("likes_raw"))
+    comments = format_metric(detail.get("comments"), detail.get("comments_raw"))
+    shares = format_metric(detail.get("shares"), detail.get("shares_raw"))
     duration = detail.get("duration_seconds")
-    best_quality = escape(str(detail.get("best_cdn_quality", "-") or "-"))
-    best_url = escape(str(detail.get("best_cdn_url", "-") or "-"))
-    description = escape(truncate(detail.get("description", ""), 500) or "-")
+    best_quality = str(detail.get("best_cdn_quality", "-") or "-")
+    best_url = str(detail.get("best_cdn_url", "-") or "-")
+    description = str(detail.get("description", "-") or "-")
 
     duration_text = "-" if duration is None else f"{duration} detik"
-    rendition_lines = summarize_renditions(detail.get("renditions", []) or [], limit=12)
-    rendition_text = "Tidak ada daftar rendition." if not rendition_lines else "\n".join(escape(line) for line in rendition_lines)
+    renditions = detail.get("renditions", []) or []
+    rendition_lines = summarize_renditions(renditions, limit=len(renditions) if renditions else 0)
+    rendition_text = "Tidak ada daftar rendition." if not rendition_lines else "\n".join(rendition_lines)
 
     return (
-        "<b>🎬 Detail Reel (Layer 2)</b>\n"
-        f"🆔 <code>{reel_id}</code>\n"
-        f"🔗 {url}\n"
+        "🎬 Detail Reel (Layer 2)\n"
+        f"ID: {reel_id}\n"
+        f"URL: {url}\n"
         f"👍 {likes} • 💬 {comments} • ↪️ {shares}\n"
-        f"⏱️ Duration: {escape(duration_text)}\n"
+        f"⏱️ Duration: {duration_text}\n"
         f"🏷️ CDN Quality: {best_quality}\n"
-        f"🌐 CDN URL: <code>{best_url}</code>\n\n"
-        f"📝 {description}\n\n"
-        "<b>📚 Daftar CDN / Rendition</b>\n"
-        f"<pre>{rendition_text}</pre>"
+        f"🌐 CDN URL: {best_url}\n\n"
+        f"📝 Description:\n{description}\n\n"
+        "📚 Daftar CDN / Rendition\n"
+        f"{rendition_text}"
     )
 
 
