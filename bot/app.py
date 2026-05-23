@@ -109,6 +109,9 @@ class BotApp:
         if data == "download:prompt":
             await self.download_handler.prompt(update, context)
             return
+        if data.startswith("download:quality:"):
+            await self.download_handler.handle_quality_callback(update, context, data.rsplit(":", 1)[-1])
+            return
         if data == "scan:order:popular":
             await self.scrape_handler.choose_order(update, context, "popular")
             return

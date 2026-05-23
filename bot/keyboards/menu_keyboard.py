@@ -4,6 +4,8 @@ from typing import Iterable, List, Sequence, Set
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from models import CdnResult
+
 
 class MenuKeyboardFactory:
     def build_main_menu_keyboard(self) -> InlineKeyboardMarkup:
@@ -98,6 +100,22 @@ class MenuKeyboardFactory:
                 ],
             ]
         )
+
+    def build_download_quality_keyboard(self, result: CdnResult) -> InlineKeyboardMarkup:
+        rows: list[list[InlineKeyboardButton]] = [[InlineKeyboardButton("🎞 Best", callback_data="download:quality:best")]]
+        variants = [variant for variant in result.video_variants if variant.url and not variant.is_audio_only]
+        for index, variant in enumerate(variants[:12]):
+            label = variant.quality or (f"{variant.height}p" if variant.height else "Video")
+            if variant.width and variant.height and label != f"{variant.height}p":
+                label = f"{label} {variant.width}x{variant.height}"
+            rows.append([InlineKeyboardButton(label, callback_data=f"download:quality:{index}")])
+        rows.append(
+            [
+                InlineKeyboardButton("⬇ Download Lagi", callback_data="download:prompt"),
+                InlineKeyboardButton("🏠 Home", callback_data="menu:home"),
+            ]
+        )
+        return InlineKeyboardMarkup(rows)
 
     def build_error_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
