@@ -15,7 +15,7 @@ class DownloadHandler:
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         state = get_user_state(context)
         state.awaiting = "download_url"
-        text = "Kirim URL reel / video Facebook / CDN langsung yang ingin diunduh."
+        text = "Kirim link video/reels Facebook yang ingin didownload."
         if update.callback_query:
             query = update.callback_query
             await query.answer()
@@ -31,44 +31,49 @@ class DownloadHandler:
 
         raw_url = update.message.text.strip()
         state.awaiting = None
+        work_dir = None
         try:
-            result = await self.services.scraper.resolve_cdn(raw_url)
-            if not result.best_url:
-                await update.message.reply_text(self.services.formatter.error_text("Gagal menemukan URL video."))
+            if not self.services.resolver.is_facebook_video_url(raw_url):
+                await update.message.reply_text(
+                    self.services.formatter.error_text("URL tidak valid atau bukan link video Facebook."),
+                    reply_markup=self.services.keyboards.build_error_keyboard(),
+                )
                 return True
 
+            loading = await update.message.reply_text("🎮 Loading...\n▰▰▱▱▱ Resolve link...")
+            resolved = await self.services.resolver.resolve_share_url(raw_url)
+            await loading.edit_text("🎮 Loading...\n▰▰▰▱▱ Ambil CDN...")
+            result = await self.services.scraper_for_update(update).resolve_cdn(resolved)
+            if not result.best_url:
+                await update.message.reply_text(
+                    self.services.formatter.error_text("CDN video tidak ditemukan."),
+                    reply_markup=self.services.keyboards.build_error_keyboard(),
+                )
+                return True
             caption = self.services.formatter.download_caption(result)
-            work_dir = Path(self.services.session_manager.session_file).parent / "downloads"
+            work_dir = self.services.temp_dir_for_update(update) / (result.reel_id or "download")
             work_dir.mkdir(parents=True, exist_ok=True)
-
-            if result.video_url and (result.audio_url or result.merged_audio_video_url):
-                try:
-                    media_path = await self.services.downloader.prepare_final_mp4(
-                        result.reel_id or "download",
-                        result.video_url,
-                        result.audio_url,
-                        work_dir,
-                    )
-                    success, _ = await self.services.media_sender.send_video_file(
-                        context.bot,
-                        update.effective_chat.id,
-                        media_path,
-                        caption,
-                    )
-                    if success:
-                        return True
-                except Exception:
-                    pass
-
-            success, _ = await self.services.media_sender.send_video_url(
+            await loading.edit_text("🎮 Loading...\n▰▰▰▰▱ Download dan merge...")
+            media_path = await self.services.downloader_for_update(update).prepare_cdn_result(result, work_dir)
+            success, reason = await self.services.media_sender.send_video_file(
                 context.bot,
                 update.effective_chat.id,
-                result.best_url,
+                media_path,
                 caption,
+                reply_markup=self.services.keyboards.build_download_keyboard(),
             )
             if not success:
-                await update.message.reply_text(result.best_url)
+                await update.message.reply_text(
+                    self.services.formatter.error_text(reason),
+                    reply_markup=self.services.keyboards.build_error_keyboard(),
+                )
             return True
         except Exception as exc:
-            await update.message.reply_text(self.services.formatter.error_text(f"Download gagal: {exc}"))
+            await update.message.reply_text(
+                self.services.formatter.error_text(str(exc)),
+                reply_markup=self.services.keyboards.build_error_keyboard(),
+            )
             return True
+        finally:
+            if work_dir is not None:
+                self.services.downloader_for_update(update).cleanup_temp_files(work_dir.glob("*"))

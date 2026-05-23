@@ -11,6 +11,7 @@ class PageInfo:
     url: str = ""
     total_items: int = 0
     total_reels: int = 0
+    detected_cards: int = 0
     source: str = ""
     description: str = ""
 
@@ -21,6 +22,7 @@ class PageInfo:
             "url": self.url,
             "total_items": self.total_items,
             "total_reels": self.total_reels,
+            "detected_cards": self.detected_cards,
             "source": self.source,
             "description": self.description,
         }

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import CLI_Mode.facebook_reels_cli as fb_cli
 from CLI_Mode.facebook_reels_cli import SessionStore
 from models import SessionStatus
 
@@ -32,14 +33,34 @@ class SessionManager:
     def source(self) -> str:
         return str(self.store.meta.get("source", "unknown") or "unknown")
 
+    @property
+    def storage_id(self) -> str:
+        return self.session_file.stem
+
     def import_cookie_string(self, raw_cookie: str) -> None:
         self.store.import_cookie_string(raw_cookie)
 
     def import_cookie_file(self, file_path: str) -> None:
         self.store.import_cookie_file(file_path)
 
+    def import_from_manager(self, source: "SessionManager", source_name: str = "imported_session") -> None:
+        if not source.store.cookie_records:
+            raise RuntimeError("Session sumber kosong.")
+        meta = dict(source.store.meta)
+        meta["source"] = meta.get("source") or source_name
+        meta["imported_from"] = str(source.session_file)
+        self.store.import_cookie_records(list(source.store.cookie_records), str(meta["source"]), meta)
+
+    def import_browser_cookies(self, target_url: str) -> None:
+        browser_name, records = fb_cli.load_browser_cookie_records("facebook.com")
+        if not fb_cli.has_browser_login_cookies(records):
+            raise RuntimeError("Cookie browser belum berisi session login Facebook.")
+        self.store.import_cookie_records(records, f"browser_login:{browser_name}", {"target": target_url})
+
     def clear(self) -> None:
         self.store.clear()
+
+    clear_session = clear
 
     def build_requests_session(self):
         return self.store.build_requests_session()

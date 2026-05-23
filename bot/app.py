@@ -7,11 +7,11 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from bot.handlers import DownloadHandler, LoginHandler, ScrapeHandler, SessionHandler, StartHandler
+from bot.handlers import DownloadHandler, LoginHandler, ScrapeHandler, SessionHandler, StartHandler, TextToolsHandler
 from bot.handlers.base import BotServices
 from bot.keyboards.menu_keyboard import MenuKeyboardFactory
 from config import BotConfig, load_config
-from services import FacebookScraper, MediaSender, SessionManager, VideoDownloader
+from services import FacebookScraper, FacebookUrlResolver, MediaSender, SessionManager, VideoDownloader
 from utils import Formatter
 
 
@@ -35,18 +35,28 @@ class BotApp:
             formatter=self.formatter,
             keyboards=self.keyboards,
             default_target=self.config.default_target,
+            banner_url=self.config.banner_url,
+            session_dir=self.config.session_dir,
+            temp_dir=self.config.temp_dir,
+            default_workers=self.config.default_workers,
+            resolver=FacebookUrlResolver(),
+            session_managers={},
+            scrapers={},
+            downloaders={},
         )
         self.start_handler = StartHandler(self.services)
         self.login_handler = LoginHandler(self.services)
         self.scrape_handler = ScrapeHandler(self.services)
         self.download_handler = DownloadHandler(self.services)
         self.session_handler = SessionHandler(self.services)
+        self.text_tools_handler = TextToolsHandler(self.services)
 
     def build_application(self) -> Application:
         application = ApplicationBuilder().token(self.config.bot_token).build()
         application.add_handler(CommandHandler("start", self.handle_start))
         application.add_handler(CommandHandler("menu", self.handle_start))
         application.add_handler(CallbackQueryHandler(self.handle_callback))
+        application.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text))
         application.add_error_handler(self.handle_error)
         return application
@@ -72,11 +82,23 @@ class BotApp:
         if data == "menu:download":
             await self.download_handler.prompt(update, context)
             return
+        if data == "menu:text_scrape":
+            await self.text_tools_handler.prompt_scrape_page(update, context)
+            return
+        if data == "menu:text_link":
+            await self.text_tools_handler.prompt_download_link(update, context)
+            return
         if data == "menu:session":
             await self.session_handler.show(update, context)
             return
         if data == "menu:clear":
             await self.session_handler.clear(update, context)
+            return
+        if data == "menu:exit":
+            await self.start_handler.exit(update, context)
+            return
+        if data.startswith("login:"):
+            await self.login_handler.handle_callback(update, context, data)
             return
         if data == "session:validate":
             await self.session_handler.show(update, context)
@@ -89,6 +111,12 @@ class BotApp:
             return
         if data == "scan:order:popular":
             await self.scrape_handler.choose_order(update, context, "popular")
+            return
+        if data == "scan:order:newest":
+            await self.scrape_handler.choose_order(update, context, "newest")
+            return
+        if data == "scan:order:oldest":
+            await self.scrape_handler.choose_order(update, context, "oldest")
             return
         if data == "scan:order:pick":
             await self.scrape_handler.choose_order(update, context, "newest")
@@ -119,12 +147,20 @@ class BotApp:
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if await self.login_handler.handle_text(update, context):
             return
+        if await self.text_tools_handler.handle_text(update, context):
+            return
         if await self.scrape_handler.handle_text(update, context):
             return
         if await self.download_handler.handle_text(update, context):
             return
         if update.message:
             await update.message.reply_text("Gunakan menu /start untuk memulai.", reply_markup=self.keyboards.build_main_menu_keyboard())
+
+    async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self.login_handler.handle_document(update, context):
+            return
+        if update.message:
+            await update.message.reply_text("Upload file hanya dipakai di menu Login / Session.", reply_markup=self.keyboards.build_main_menu_keyboard())
 
     async def handle_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.exception("Telegram bot error", exc_info=context.error)

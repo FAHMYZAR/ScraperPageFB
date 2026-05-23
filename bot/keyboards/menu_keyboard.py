@@ -9,25 +9,63 @@ class MenuKeyboardFactory:
     def build_main_menu_keyboard(self) -> InlineKeyboardMarkup:
         rows = [
             [
-                InlineKeyboardButton("🔐 Login", callback_data="menu:login"),
-                InlineKeyboardButton("🕷 Scan", callback_data="menu:scan"),
+                InlineKeyboardButton("🔐 Login / Session", callback_data="menu:login"),
+                InlineKeyboardButton("🕷 Scrape Reels", callback_data="menu:scan"),
             ],
             [
-                InlineKeyboardButton("⬇ Download", callback_data="menu:download"),
-                InlineKeyboardButton("🧾 Session", callback_data="menu:session"),
+                InlineKeyboardButton("⬇ Download Video", callback_data="menu:download"),
+                InlineKeyboardButton("🧾 Cek Session", callback_data="menu:session"),
             ],
             [
-                InlineKeyboardButton("🧹 Clear", callback_data="menu:clear"),
-                InlineKeyboardButton("🏠 Home", callback_data="menu:home"),
+                InlineKeyboardButton("📄 Scrape Page JSON", callback_data="menu:text_scrape"),
+                InlineKeyboardButton("🔗 Get Link JSON", callback_data="menu:text_link"),
+            ],
+            [
+                InlineKeyboardButton("🧹 Clear Session", callback_data="menu:clear"),
+                InlineKeyboardButton("🚪 Keluar", callback_data="menu:exit"),
             ],
         ]
         return InlineKeyboardMarkup(rows)
+
+    def build_text_tools_keyboard(self) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("📄 Scrape Page JSON", callback_data="menu:text_scrape"),
+                    InlineKeyboardButton("🔗 Get Link JSON", callback_data="menu:text_link"),
+                ],
+                [InlineKeyboardButton("🏠 Home", callback_data="menu:home")],
+            ]
+        )
+
+    def build_login_keyboard(self) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🌐 Login Browser", callback_data="login:browser"),
+                    InlineKeyboardButton("🍪 Paste Cookie", callback_data="login:paste"),
+                ],
+                [
+                    InlineKeyboardButton("📄 Upload Cookie JSON", callback_data="login:json"),
+                    InlineKeyboardButton("📜 Upload Netscape Cookie", callback_data="login:netscape"),
+                ],
+                [
+                    InlineKeyboardButton("🧹 Clear Session", callback_data="session:clear"),
+                    InlineKeyboardButton("🔙 Back", callback_data="menu:home"),
+                ],
+                [InlineKeyboardButton("🏠 Home", callback_data="menu:home")],
+            ]
+        )
 
     def build_scan_order_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             [
                 [
                     InlineKeyboardButton("🔥 Popular", callback_data="scan:order:popular"),
+                    InlineKeyboardButton("🆕 Terbaru", callback_data="scan:order:newest"),
+                ],
+                [
+                    InlineKeyboardButton("📜 Dari Bawah / Lama", callback_data="scan:order:oldest"),
                     InlineKeyboardButton("🎯 Pick Sendiri", callback_data="scan:order:pick"),
                 ],
                 [
@@ -55,9 +93,20 @@ class MenuKeyboardFactory:
         return InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("📎 Kirim URL", callback_data="download:prompt"),
+                    InlineKeyboardButton("⬇ Download Lagi", callback_data="download:prompt"),
                     InlineKeyboardButton("🏠 Home", callback_data="menu:home"),
                 ],
+            ]
+        )
+
+    def build_error_keyboard(self) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔁 Coba Lagi", callback_data="download:prompt"),
+                    InlineKeyboardButton("⬇ Download Lagi", callback_data="download:prompt"),
+                ],
+                [InlineKeyboardButton("🏠 Home", callback_data="menu:home")],
             ]
         )
 
@@ -68,12 +117,19 @@ class MenuKeyboardFactory:
         total_pages: int,
         has_prev: bool,
         has_next: bool,
+        item_count: int = 3,
     ) -> InlineKeyboardMarkup:
+        def slot_button(slot: int) -> InlineKeyboardButton:
+            if slot > item_count:
+                return InlineKeyboardButton(str(slot), callback_data="scan:noop")
+            label = str(slot) if slot not in selected_slots else f"{slot} ✅"
+            return InlineKeyboardButton(label, callback_data=f"scan:select:{slot}")
+
         rows = [
             [
-                InlineKeyboardButton("1" if 1 not in selected_slots else "1 ✅", callback_data="scan:select:1"),
-                InlineKeyboardButton("2" if 2 not in selected_slots else "2 ✅", callback_data="scan:select:2"),
-                InlineKeyboardButton("3" if 3 not in selected_slots else "3 ✅", callback_data="scan:select:3"),
+                slot_button(1),
+                slot_button(2),
+                slot_button(3),
             ],
             [
                 InlineKeyboardButton("⬅ Prev", callback_data="scan:prev" if has_prev else "scan:noop"),

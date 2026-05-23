@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -12,7 +12,8 @@ from bs4 import BeautifulSoup
 
 import CLI_Mode.facebook_reels_cli as fb_cli
 from CLI_Mode.facebook_reels_cli import normalize_scan_order, safe_int
-from models import CdnResult, PageInfo, Reel, SessionStatus
+from models import CdnResult, CdnVariant, PageInfo, Reel, SessionStatus
+from services.facebook_url_resolver import FacebookUrlResolver
 from services.session_manager import SessionManager
 from utils.cache import TTLCache
 from utils.performance import clamp_concurrency, paginate
@@ -31,6 +32,7 @@ class FacebookScraper:
         self.workers = clamp_concurrency(workers, hard_limit=8)
         self.engine = fb_cli.ReelsScraper(session_manager.store, target=default_target, workers=self.workers)
         self.cache = cache or TTLCache[str, Any](ttl_seconds=300, max_items=32)
+        self.resolver = FacebookUrlResolver()
 
     def _cache_key(self, prefix: str, *parts: Any) -> str:
         return "|".join([prefix, *[str(part) for part in parts]])
@@ -52,19 +54,23 @@ class FacebookScraper:
         order_key = normalize_scan_order(order)
         if order_key == "oldest":
             return list(reversed(cards))
-        if order_key == "popular":
-            return sorted(
-                cards,
-                key=lambda card: (
-                    safe_int(card.get("card_views_value"), 0) or 0,
-                    safe_int(card.get("likes"), 0) or 0,
-                    safe_int(card.get("comments"), 0) or 0,
-                    safe_int(card.get("shares"), 0) or 0,
-                    safe_int(card.get("index"), 0) or 0,
-                ),
-                reverse=True,
-            )
         return cards
+
+    def _sort_reels(self, reels: List[Reel], order: str) -> List[Reel]:
+        order_key = normalize_scan_order(order)
+        if order_key != "popular":
+            return [replace(reel, scan_index=index + 1) for index, reel in enumerate(reels)]
+        sorted_reels = sorted(
+            reels,
+            key=lambda reel: (
+                reel.views or 0,
+                reel.likes or 0,
+                reel.comments or 0,
+                reel.shares or 0,
+            ),
+            reverse=True,
+        )
+        return [replace(reel, scan_index=index + 1) for index, reel in enumerate(sorted_reels)]
 
     def _collect_cards_sync(self, page_url: str, use_browser_scroll: bool = True) -> List[Dict[str, Any]]:
         cache_key = self._cache_key("cards", page_url, use_browser_scroll)
@@ -100,12 +106,43 @@ class FacebookScraper:
         results.sort(key=lambda item: item.get("index", 0) or 0)
         return results
 
+    def _extract_cdn_variants(self, detail: Dict[str, Any]) -> tuple[List[CdnVariant], List[CdnVariant]]:
+        variants = [CdnVariant.from_rendition(item) for item in list(detail.get("renditions", []) or [])]
+        video_variants = [item for item in variants if item.url and not item.is_audio_only]
+        audio_variants = [item for item in variants if item.url and item.is_audio_only]
+        direct_url = str(detail.get("best_cdn_url", "") or "")
+        if direct_url and not any(item.url == direct_url for item in video_variants):
+            video_variants.append(
+                CdnVariant(
+                    url=direct_url,
+                    quality=str(detail.get("best_cdn_quality", "") or "") or None,
+                    bitrate=int(detail.get("best_cdn_bandwidth", 0) or 0) or None,
+                    mime_type="video/mp4",
+                    has_audio=not audio_variants,
+                    is_audio_only=False,
+                )
+            )
+        return video_variants, audio_variants
+
+    def _choose_best_video(self, variants: List[CdnVariant]) -> Optional[CdnVariant]:
+        if not variants:
+            return None
+        return sorted(variants, key=lambda item: (item.height or 0, item.width or 0, item.bitrate or 0), reverse=True)[0]
+
+    def _choose_best_audio(self, variants: List[CdnVariant]) -> Optional[CdnVariant]:
+        if not variants:
+            return None
+        return sorted(variants, key=lambda item: item.bitrate or 0, reverse=True)[0]
+
     def _extract_cdn(self, detail: Dict[str, Any]) -> CdnResult:
+        video_variants, audio_variants = self._extract_cdn_variants(detail)
+        best_video = self._choose_best_video(video_variants)
+        best_audio = self._choose_best_audio(audio_variants)
         return CdnResult(
-            video_url=str(detail.get("best_cdn_url", "") or "") or None,
-            audio_url=None,
-            merged_audio_video_url=str(detail.get("best_cdn_url", "") or "") or None,
-            quality=str(detail.get("best_cdn_quality", "") or "") or None,
+            video_url=best_video.url if best_video else (str(detail.get("best_cdn_url", "") or "") or None),
+            audio_url=best_audio.url if best_audio else None,
+            merged_audio_video_url=(best_video.url if best_video and best_video.has_audio else None),
+            quality=(best_video.quality if best_video else str(detail.get("best_cdn_quality", "") or "") or None),
             title=str(detail.get("title", "") or ""),
             description=str(detail.get("description", "") or ""),
             reel_id=str(detail.get("reel_id", "") or ""),
@@ -113,6 +150,10 @@ class FacebookScraper:
             thumbnail_url=str(detail.get("thumbnail_url", "") or ""),
             best_bandwidth=int(detail.get("best_cdn_bandwidth", 0) or 0),
             renditions=list(detail.get("renditions", []) or []),
+            video_variants=video_variants,
+            audio_variants=audio_variants,
+            best_video=best_video,
+            best_audio=best_audio,
             status=str(detail.get("status", "ok") or "ok"),
         )
 
@@ -123,6 +164,9 @@ class FacebookScraper:
         match = re.search(r"/reel/(\d+)", raw)
         if match:
             return match.group(1), source_url or raw
+        video_match = re.search(r"[?&]v=(\d+)|/videos/(\d+)", raw)
+        if video_match:
+            return next(group for group in video_match.groups() if group), source_url or raw
         if raw.isdigit():
             return raw, source_url
         return raw, source_url or raw
@@ -171,6 +215,7 @@ class FacebookScraper:
                 url=response.url or page_url,
                 total_items=len(cards),
                 total_reels=len(cards),
+                detected_cards=len(cards),
                 source=page_url,
                 description=name,
             )
@@ -198,7 +243,7 @@ class FacebookScraper:
                 ordered_cards = ordered_cards[:max_reels]
             summaries = self._fetch_summaries_sync(ordered_cards)
             reels = [Reel.from_summary({**summary, "scan_index": idx + 1}) for idx, summary in enumerate(summaries)]
-            return reels
+            return self._sort_reels(reels, order)
 
         reels = await asyncio.to_thread(_load)
         self.cache.set(cache_key, reels)
@@ -235,4 +280,10 @@ class FacebookScraper:
         return await asyncio.to_thread(_load)
 
     async def resolve_cdn(self, reel_ref: str, source_url: Optional[str] = None) -> CdnResult:
-        return await self.fetch_reel_detail(reel_ref, source_url=source_url)
+        normalized = reel_ref
+        try:
+            if self.resolver.is_facebook_video_url(reel_ref):
+                normalized = await self.resolver.resolve_share_url(reel_ref)
+        except Exception:
+            normalized = reel_ref
+        return await self.fetch_reel_detail(normalized, source_url=source_url)

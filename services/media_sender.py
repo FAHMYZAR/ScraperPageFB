@@ -11,8 +11,9 @@ from utils.performance import chunk_text
 
 
 class MediaSender:
-    def __init__(self, text_limit: int = 3900) -> None:
+    def __init__(self, text_limit: int = 3900, max_upload_bytes: int = 50 * 1024 * 1024) -> None:
         self.text_limit = max(100, text_limit)
+        self.max_upload_bytes = max_upload_bytes
 
     async def send_text(
         self,
@@ -52,6 +53,8 @@ class MediaSender:
         height: int = 0,
         reply_markup: Optional[InlineKeyboardMarkup] = None,
     ) -> tuple[bool, str]:
+        if file_path.stat().st_size > self.max_upload_bytes:
+            return False, "Video berhasil diproses, tapi ukuran file melebihi batas upload Telegram."
         try:
             with file_path.open("rb") as handle:
                 await bot.send_video(

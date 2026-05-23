@@ -12,18 +12,23 @@ class SessionHandler:
         self.services = services
 
     async def show(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        status = await self.services.scraper.validate_session(self.services.default_target)
-        text = self.services.formatter.session_status_text(status)
+        manager = self.services.session_for_update(update)
+        status = await self.services.scraper_for_update(update).validate_session(self.services.default_target)
+        text = self.services.formatter.session_status_text(status, storage_id=manager.storage_id)
         if update.callback_query:
             query = update.callback_query
             await query.answer()
-            await query.edit_message_text(text, reply_markup=self.services.keyboards.build_session_keyboard())
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=self.services.keyboards.build_session_keyboard(),
+            )
             return
         if update.message:
             await update.message.reply_text(text, reply_markup=self.services.keyboards.build_session_keyboard())
 
     async def clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        self.services.session_manager.clear()
+        self.services.session_for_update(update).clear()
         get_user_state(context).clear()
         if update.callback_query:
             query = update.callback_query

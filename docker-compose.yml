@@ -10,7 +10,9 @@ services:
     environment:
       - TZ=Asia/Jakarta
       - SESSION_FILE=/app/data/bot_session.json
+      - SESSION_DIR=/app/data/sessions
       - OUTPUT_DIR=/app/data/output
+      - TEMP_DIR=/app/data/temp
 
     volumes:
       - /data/CLI_Mode:/app/data
