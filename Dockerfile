@@ -14,6 +14,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
-RUN mkdir -p /app/CLI_Mode/output
+RUN mkdir -p /app/data/output
 
 CMD ["python", "bot_main.py"]

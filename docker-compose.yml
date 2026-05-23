@@ -9,11 +9,11 @@ services:
 
     environment:
       - TZ=Asia/Jakarta
-      - SESSION_FILE=/app/CLI_Mode/bot_session.json
-      - OUTPUT_DIR=/app/CLI_Mode/output
+      - SESSION_FILE=/app/data/bot_session.json
+      - OUTPUT_DIR=/app/data/output
 
     volumes:
-      - /data/CLI_Mode:/app/CLI_Mode
+      - /data/CLI_Mode:/app/data
 
     logging:
       driver: "json-file"
