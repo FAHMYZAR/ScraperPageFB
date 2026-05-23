@@ -54,7 +54,17 @@ class MediaSender:
         reply_markup: Optional[InlineKeyboardMarkup] = None,
     ) -> tuple[bool, str]:
         if file_path.stat().st_size > self.max_upload_bytes:
-            return False, "Video berhasil diproses, tapi ukuran file melebihi batas upload Telegram."
+            try:
+                with file_path.open("rb") as handle:
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=handle,
+                        caption=caption,
+                        reply_markup=reply_markup,
+                    )
+                return True, "document_large_file"
+            except TelegramError as exc_doc:
+                return False, f"Video berhasil diproses, tapi ukuran file melebihi batas upload Telegram. Dokumen juga gagal: {exc_doc}"
         try:
             with file_path.open("rb") as handle:
                 await bot.send_video(
