@@ -158,9 +158,24 @@ class ScrapeHandler:
                 )
                 if success:
                     continue
+                part_dir = work_dir / "parts"
+                parts = await self.services.downloader_for_update(update).split_video_by_size(
+                    media_path,
+                    part_dir,
+                    self.services.media_sender.max_upload_bytes,
+                )
+                split_success, split_reason = await self.services.media_sender.send_video_parts(
+                    context.bot,
+                    update.effective_chat.id,
+                    parts,
+                    caption,
+                    reply_markup=self.services.keyboards.build_download_keyboard(),
+                )
+                if split_success:
+                    continue
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=self.services.formatter.error_text(reason),
+                    text=self.services.formatter.error_text(f"{reason}; split juga gagal: {split_reason}"),
                     reply_markup=self.services.keyboards.build_error_keyboard(),
                 )
             except Exception as exc:

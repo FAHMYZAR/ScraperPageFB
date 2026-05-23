@@ -34,6 +34,7 @@ class FacebookUrlResolver:
             host == "fb.watch"
             or "/reel/" in path
             or "/share/r/" in path
+            or "/share/v/" in path
             or "/watch/" in path
             or "/videos/" in path
             or "video.php" in path
@@ -103,7 +104,7 @@ class FacebookUrlResolver:
 
     async def resolve_share_url(self, raw_url: str) -> str:
         normalized = self.normalize_url(raw_url)
-        if "fb.watch" not in normalized and "/watch/" not in normalized:
+        if "fb.watch" not in normalized and "/watch/" not in normalized and "/share/v/" not in normalized:
             return normalized
 
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)

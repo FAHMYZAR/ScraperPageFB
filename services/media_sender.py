@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from telegram import InlineKeyboardMarkup
+from telegram import InlineKeyboardMarkup, InputMediaVideo
 from telegram.error import TelegramError
 
 from models import CdnResult
@@ -107,5 +107,39 @@ class MediaSender:
                 reply_markup=reply_markup,
             )
             return True, "remote_url"
+        except TelegramError as exc:
+            return False, str(exc)
+
+    async def send_video_parts(
+        self,
+        bot,
+        chat_id: int,
+        file_paths: list[Path],
+        caption: str,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+    ) -> tuple[bool, str]:
+        if not file_paths:
+            return False, "Tidak ada part video untuk dikirim."
+
+        total = len(file_paths)
+        try:
+            for start in range(0, total, 10):
+                chunk = file_paths[start:start + 10]
+                handles = [path.open("rb") for path in chunk]
+                try:
+                    media = []
+                    for offset, handle in enumerate(handles):
+                        part_number = start + offset + 1
+                        part_caption = f"Part {part_number}/{total}"
+                        if part_number == 1 and caption:
+                            part_caption = f"{caption}\n\n{part_caption}"
+                        media.append(InputMediaVideo(media=handle, caption=part_caption, supports_streaming=True))
+                    await bot.send_media_group(chat_id=chat_id, media=media)
+                finally:
+                    for handle in handles:
+                        handle.close()
+            if reply_markup:
+                await bot.send_message(chat_id=chat_id, text="Semua part terkirim.", reply_markup=reply_markup)
+            return True, "video_parts"
         except TelegramError as exc:
             return False, str(exc)

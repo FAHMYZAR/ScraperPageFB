@@ -63,10 +63,24 @@ class DownloadHandler:
                 reply_markup=self.services.keyboards.build_download_keyboard(),
             )
             if not success:
-                await update.message.reply_text(
-                    self.services.formatter.error_text(reason),
-                    reply_markup=self.services.keyboards.build_error_keyboard(),
+                part_dir = work_dir / "parts"
+                parts = await self.services.downloader_for_update(update).split_video_by_size(
+                    media_path,
+                    part_dir,
+                    self.services.media_sender.max_upload_bytes,
                 )
+                success, part_reason = await self.services.media_sender.send_video_parts(
+                    context.bot,
+                    update.effective_chat.id,
+                    parts,
+                    caption,
+                    reply_markup=self.services.keyboards.build_download_keyboard(),
+                )
+                if not success:
+                    await update.message.reply_text(
+                        self.services.formatter.error_text(f"{reason}; split juga gagal: {part_reason}"),
+                        reply_markup=self.services.keyboards.build_error_keyboard(),
+                    )
             return True
         except Exception as exc:
             await update.message.reply_text(

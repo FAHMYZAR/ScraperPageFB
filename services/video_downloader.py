@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 import asyncio
 import aiohttp
+import shutil
 
 from CLI_Mode.facebook_reels_cli import DEFAULT_HEADERS
 from models import CdnResult, CdnVariant
@@ -58,7 +59,9 @@ class VideoDownloader:
         path_list = list(paths)
         for path in path_list:
             try:
-                if path.exists():
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                elif path.exists():
                     path.unlink()
             except OSError:
                 pass
@@ -116,6 +119,9 @@ class VideoDownloader:
 
     async def detect_has_audio(self, file_path: Path) -> bool:
         return await self.merger.has_audio_stream(file_path)
+
+    async def split_video_by_size(self, file_path: Path, output_dir: Path, max_part_bytes: int) -> list[Path]:
+        return await self.merger.split_video_by_size(file_path, output_dir, max_part_bytes)
 
     async def prepare_final_mp4(
         self,
