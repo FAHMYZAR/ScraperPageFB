@@ -57,7 +57,7 @@ SESSION_FILE = APP_DIR / "session.json"
 DEFAULT_WORKERS = 4
 DEFAULT_LOGIN_TIMEOUT = 300
 DEFAULT_LOGIN_POLL = 5
-PLAYWRIGHT_BROWSER_CHANNELS = ("chrome", "msedge")
+PLAYWRIGHT_BROWSER_CHANNELS = ("chromium", "chrome", "msedge")
 LOGIN_BROWSER_SOURCES = ("edge", "firefox", "chrome", "chromium", "brave", "opera")
 DEFAULT_HEADERS = {
     "User-Agent": (
