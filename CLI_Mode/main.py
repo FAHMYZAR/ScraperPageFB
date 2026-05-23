@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from facebook_reels_cli import main
+from CLI_Mode.facebook_reels_cli import main
 
 
 if __name__ == "__main__":

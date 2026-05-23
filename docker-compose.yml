@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   fb-reels-telegram-bot:
     build: .
@@ -11,9 +9,11 @@ services:
 
     environment:
       - TZ=Asia/Jakarta
+      - SESSION_FILE=/app/CLI_Mode/bot_session.json
+      - OUTPUT_DIR=/app/CLI_Mode/output
 
     volumes:
-      - /data/fb-reels-cli:/app/fb_reels_cli
+      - /data/CLI_Mode:/app/CLI_Mode
 
     logging:
       driver: "json-file"

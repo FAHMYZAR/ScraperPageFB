@@ -14,6 +14,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
-RUN mkdir -p /app/fb_reels_cli/output
+RUN mkdir -p /app/CLI_Mode/output
 
-CMD ["python", "telegram_reels_bot.py"]
+CMD ["python", "bot_main.py"]
